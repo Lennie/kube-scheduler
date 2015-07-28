@@ -44,9 +44,9 @@ func hasNoPodsPredicate(pod *api.Pod, existingPods []*api.Pod, node string) (boo
 	return len(existingPods) == 0, nil
 }
 
-func numericPriority(pod *api.Pod, podLister algorithm.PodLister, minionLister algorithm.MinionLister) (algorithm.HostPriorityList, error) {
+func numericPriority(pod *api.Pod, podLister algorithm.PodLister, minionLister algorithm.MinionLister) (api.HostPriorityList, error) {
 	nodes, err := minionLister.List()
-	result := []algorithm.HostPriority{}
+	result := []api.HostPriority{}
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes: %v", err)
@@ -56,7 +56,7 @@ func numericPriority(pod *api.Pod, podLister algorithm.PodLister, minionLister a
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, algorithm.HostPriority{
+		result = append(result, api.HostPriority{
 			Host:  minion.Name,
 			Score: score,
 		})
@@ -64,10 +64,10 @@ func numericPriority(pod *api.Pod, podLister algorithm.PodLister, minionLister a
 	return result, nil
 }
 
-func reverseNumericPriority(pod *api.Pod, podLister algorithm.PodLister, minionLister algorithm.MinionLister) (algorithm.HostPriorityList, error) {
+func reverseNumericPriority(pod *api.Pod, podLister algorithm.PodLister, minionLister algorithm.MinionLister) (api.HostPriorityList, error) {
 	var maxScore float64
 	minScore := math.MaxFloat64
-	reverseResult := []algorithm.HostPriority{}
+	reverseResult := []api.HostPriority{}
 	result, err := numericPriority(pod, podLister, minionLister)
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func reverseNumericPriority(pod *api.Pod, podLister algorithm.PodLister, minionL
 		minScore = math.Min(minScore, float64(hostPriority.Score))
 	}
 	for _, hostPriority := range result {
-		reverseResult = append(reverseResult, algorithm.HostPriority{
+		reverseResult = append(reverseResult, api.HostPriority{
 			Host:  hostPriority.Host,
 			Score: int(maxScore + minScore - float64(hostPriority.Score)),
 		})
@@ -100,12 +100,12 @@ func makeNodeList(nodeNames []string) api.NodeList {
 func TestSelectHost(t *testing.T) {
 	scheduler := genericScheduler{random: rand.New(rand.NewSource(0))}
 	tests := []struct {
-		list          algorithm.HostPriorityList
+		list          api.HostPriorityList
 		possibleHosts util.StringSet
 		expectsErr    bool
 	}{
 		{
-			list: []algorithm.HostPriority{
+			list: []api.HostPriority{
 				{Host: "machine1.1", Score: 1},
 				{Host: "machine2.1", Score: 2},
 			},
@@ -114,7 +114,7 @@ func TestSelectHost(t *testing.T) {
 		},
 		// equal scores
 		{
-			list: []algorithm.HostPriority{
+			list: []api.HostPriority{
 				{Host: "machine1.1", Score: 1},
 				{Host: "machine1.2", Score: 2},
 				{Host: "machine1.3", Score: 2},
@@ -125,7 +125,7 @@ func TestSelectHost(t *testing.T) {
 		},
 		// out of order scores
 		{
-			list: []algorithm.HostPriority{
+			list: []api.HostPriority{
 				{Host: "machine1.1", Score: 3},
 				{Host: "machine1.2", Score: 3},
 				{Host: "machine2.1", Score: 2},
@@ -137,7 +137,7 @@ func TestSelectHost(t *testing.T) {
 		},
 		// empty priorityList
 		{
-			list:          []algorithm.HostPriority{},
+			list:          []api.HostPriority{},
 			possibleHosts: util.NewStringSet(),
 			expectsErr:    true,
 		},

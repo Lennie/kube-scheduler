@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/cloudprovider"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
 	"github.com/GoogleCloudPlatform/kubernetes/plugin/pkg/scheduler/algorithm"
 	"github.com/GoogleCloudPlatform/kubernetes/plugin/pkg/scheduler/algorithm/predicates"
@@ -60,7 +61,7 @@ type genericScheduler struct {
 	randomLock   sync.Mutex
 }
 
-func (g *genericScheduler) Schedule(pod *api.Pod, minionLister algorithm.MinionLister) (string, error) {
+func (g *genericScheduler) Schedule(pod *api.Pod, minionLister algorithm.MinionLister, cloud cloudprovider.Interface) (string, error) {
 	minions, err := minionLister.List()
 	if err != nil {
 		return "", err
@@ -69,12 +70,12 @@ func (g *genericScheduler) Schedule(pod *api.Pod, minionLister algorithm.MinionL
 		return "", ErrNoNodesAvailable
 	}
 
-	filteredNodes, failedPredicateMap, err := findNodesThatFit(pod, g.pods, g.predicates, minions)
+	filteredNodes, failedPredicateMap, err := findNodesThatFit(pod, g.pods, g.predicates, minions, cloud)
 	if err != nil {
 		return "", err
 	}
 
-	priorityList, err := PrioritizeNodes(pod, g.pods, g.prioritizers, algorithm.FakeMinionLister(filteredNodes))
+	priorityList, err := PrioritizeNodes(pod, g.pods, g.prioritizers, algorithm.FakeMinionLister(filteredNodes), cloud)
 	if err != nil {
 		return "", err
 	}
@@ -90,7 +91,7 @@ func (g *genericScheduler) Schedule(pod *api.Pod, minionLister algorithm.MinionL
 
 // This method takes a prioritized list of minions and sorts them in reverse order based on scores
 // and then picks one randomly from the minions that had the highest score
-func (g *genericScheduler) selectHost(priorityList algorithm.HostPriorityList) (string, error) {
+func (g *genericScheduler) selectHost(priorityList api.HostPriorityList) (string, error) {
 	if len(priorityList) == 0 {
 		return "", fmt.Errorf("empty priorityList")
 	}
@@ -106,7 +107,7 @@ func (g *genericScheduler) selectHost(priorityList algorithm.HostPriorityList) (
 
 // Filters the minions to find the ones that fit based on the given predicate functions
 // Each minion is passed through the predicate functions to determine if it is a fit
-func findNodesThatFit(pod *api.Pod, podLister algorithm.PodLister, predicateFuncs map[string]algorithm.FitPredicate, nodes api.NodeList) (api.NodeList, FailedPredicateMap, error) {
+func findNodesThatFit(pod *api.Pod, podLister algorithm.PodLister, predicateFuncs map[string]algorithm.FitPredicate, nodes api.NodeList, cloud cloudprovider.Interface) (api.NodeList, FailedPredicateMap, error) {
 	filtered := []api.Node{}
 	machineToPods, err := predicates.MapPodsToMachines(podLister)
 	failedPredicateMap := FailedPredicateMap{}
@@ -133,6 +134,18 @@ func findNodesThatFit(pod *api.Pod, podLister algorithm.PodLister, predicateFunc
 			filtered = append(filtered, node)
 		}
 	}
+
+	if cloud != nil {
+		ext, supported := cloud.SchedulerExtension()
+		if supported {
+			filteredList, err := ext.Filter(pod, &api.NodeList{Items: filtered})
+			if err != nil {
+				return api.NodeList{}, FailedPredicateMap{}, err
+			}
+			filtered = filteredList.Items
+		}
+	}
+
 	return api.NodeList{Items: filtered}, failedPredicateMap, nil
 }
 
@@ -142,8 +155,8 @@ func findNodesThatFit(pod *api.Pod, podLister algorithm.PodLister, predicateFunc
 // Each priority function can also have its own weight
 // The minion scores returned by the priority function are multiplied by the weights to get weighted scores
 // All scores are finally combined (added) to get the total weighted scores of all minions
-func PrioritizeNodes(pod *api.Pod, podLister algorithm.PodLister, priorityConfigs []algorithm.PriorityConfig, minionLister algorithm.MinionLister) (algorithm.HostPriorityList, error) {
-	result := algorithm.HostPriorityList{}
+func PrioritizeNodes(pod *api.Pod, podLister algorithm.PodLister, priorityConfigs []algorithm.PriorityConfig, minionLister algorithm.MinionLister, cloud cloudprovider.Interface) (api.HostPriorityList, error) {
+	result := api.HostPriorityList{}
 
 	// If no priority configs are provided, then the EqualPriority function is applied
 	// This is required to generate the priority list in the required format
@@ -161,20 +174,40 @@ func PrioritizeNodes(pod *api.Pod, podLister algorithm.PodLister, priorityConfig
 		priorityFunc := priorityConfig.Function
 		prioritizedList, err := priorityFunc(pod, podLister, minionLister)
 		if err != nil {
-			return algorithm.HostPriorityList{}, err
+			return api.HostPriorityList{}, err
 		}
 		for _, hostEntry := range prioritizedList {
 			combinedScores[hostEntry.Host] += hostEntry.Score * weight
 		}
 	}
+
+	if cloud != nil {
+		ext, supported := cloud.SchedulerExtension()
+		if supported {
+			nodes, err := minionLister.List()
+			if err != nil {
+				return api.HostPriorityList{}, err
+			}
+
+			prioritizedList, err := ext.Prioritize(pod, &nodes)
+			if err != nil {
+				return api.HostPriorityList{}, err
+			}
+
+			for _, hostEntry := range *prioritizedList {
+				combinedScores[hostEntry.Host] += hostEntry.Score
+			}
+		}
+	}
+
 	for host, score := range combinedScores {
 		glog.V(10).Infof("Host %s Score %d", host, score)
-		result = append(result, algorithm.HostPriority{Host: host, Score: score})
+		result = append(result, api.HostPriority{Host: host, Score: score})
 	}
 	return result, nil
 }
 
-func getBestHosts(list algorithm.HostPriorityList) []string {
+func getBestHosts(list api.HostPriorityList) []string {
 	result := []string{}
 	for _, hostEntry := range list {
 		if hostEntry.Score == list[0].Score {
@@ -187,16 +220,16 @@ func getBestHosts(list algorithm.HostPriorityList) []string {
 }
 
 // EqualPriority is a prioritizer function that gives an equal weight of one to all nodes
-func EqualPriority(_ *api.Pod, podLister algorithm.PodLister, minionLister algorithm.MinionLister) (algorithm.HostPriorityList, error) {
+func EqualPriority(_ *api.Pod, podLister algorithm.PodLister, minionLister algorithm.MinionLister) (api.HostPriorityList, error) {
 	nodes, err := minionLister.List()
 	if err != nil {
 		fmt.Errorf("failed to list nodes: %v", err)
-		return []algorithm.HostPriority{}, err
+		return []api.HostPriority{}, err
 	}
 
-	result := []algorithm.HostPriority{}
+	result := []api.HostPriority{}
 	for _, minion := range nodes.Items {
-		result = append(result, algorithm.HostPriority{
+		result = append(result, api.HostPriority{
 			Host:  minion.Name,
 			Score: 1,
 		})

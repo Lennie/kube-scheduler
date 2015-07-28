@@ -2128,3 +2128,26 @@ type RangeAllocation struct {
 	// a single allocated address (the fifth bit on CIDR 10.0.0.0/8 is 10.0.0.4).
 	Data []byte `json:"data"`
 }
+
+// HostPriority represents the priority of scheduling to a particular host, lower priority is better.
+type HostPriority struct {
+	Host  string `json:"host"`
+	Score int    `json:"score"`
+}
+
+type HostPriorityList []HostPriority
+
+func (h HostPriorityList) Len() int {
+	return len(h)
+}
+
+func (h HostPriorityList) Less(i, j int) bool {
+	if h[i].Score == h[j].Score {
+		return h[i].Host < h[j].Host
+	}
+	return h[i].Score < h[j].Score
+}
+
+func (h HostPriorityList) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+}

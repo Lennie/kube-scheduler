@@ -439,3 +439,8 @@ func (os *Rackspace) GetZone() (cloudprovider.Zone, error) {
 
 	return cloudprovider.Zone{Region: os.region}, nil
 }
+
+// SchedulerExtension returns an implementation of SchedulerExtension for Rackspace
+func (v *Rackspace) SchedulerExtension() (cloudprovider.SchedulerExtension, bool) {
+	return nil, false
+}

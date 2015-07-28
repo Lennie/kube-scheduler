@@ -43,6 +43,7 @@ import (
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/auth/authorizer"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/auth/handlers"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/client"
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/cloudprovider"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/healthz"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
@@ -87,6 +88,7 @@ const (
 
 // Config is a structure used to configure a Master.
 type Config struct {
+	Cloud           cloudprovider.Interface
 	DatabaseStorage tools.StorageInterface
 	EventTTL        time.Duration
 	MinionRegexp    string
@@ -421,7 +423,7 @@ func (m *Master) init(c *Config) {
 	healthzChecks := []healthz.HealthzChecker{}
 	m.clock = util.RealClock{}
 	podStorage := podetcd.NewStorage(c.DatabaseStorage, c.KubeletClient)
-	podRegistry := pod.NewRegistry(podStorage.Pod)
+	podRegistry := pod.NewRegistry(podStorage.Pod, c.Cloud)
 
 	podTemplateStorage := podtemplateetcd.NewREST(c.DatabaseStorage)
 

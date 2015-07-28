@@ -36,7 +36,7 @@ func NewServiceSpreadPriority(serviceLister algorithm.ServiceLister) algorithm.P
 
 // CalculateSpreadPriority spreads pods by minimizing the number of pods belonging to the same service
 // on the same machine.
-func (s *ServiceSpread) CalculateSpreadPriority(pod *api.Pod, podLister algorithm.PodLister, minionLister algorithm.MinionLister) (algorithm.HostPriorityList, error) {
+func (s *ServiceSpread) CalculateSpreadPriority(pod *api.Pod, podLister algorithm.PodLister, minionLister algorithm.MinionLister) (api.HostPriorityList, error) {
 	var maxCount int
 	var nsServicePods []*api.Pod
 
@@ -73,7 +73,7 @@ func (s *ServiceSpread) CalculateSpreadPriority(pod *api.Pod, podLister algorith
 		}
 	}
 
-	result := []algorithm.HostPriority{}
+	result := []api.HostPriority{}
 	//score int - scale of 0-10
 	// 0 being the lowest priority and 10 being the highest
 	for _, minion := range minions.Items {
@@ -82,7 +82,7 @@ func (s *ServiceSpread) CalculateSpreadPriority(pod *api.Pod, podLister algorith
 		if maxCount > 0 {
 			fScore = 10 * (float32(maxCount-counts[minion.Name]) / float32(maxCount))
 		}
-		result = append(result, algorithm.HostPriority{Host: minion.Name, Score: int(fScore)})
+		result = append(result, api.HostPriority{Host: minion.Name, Score: int(fScore)})
 		glog.V(10).Infof(
 			"%v -> %v: ServiceSpreadPriority, Score: (%d)", pod.Name, minion.Name, int(fScore),
 		)
@@ -106,7 +106,7 @@ func NewServiceAntiAffinityPriority(serviceLister algorithm.ServiceLister, label
 // CalculateAntiAffinityPriority spreads pods by minimizing the number of pods belonging to the same service
 // on machines with the same value for a particular label.
 // The label to be considered is provided to the struct (ServiceAntiAffinity).
-func (s *ServiceAntiAffinity) CalculateAntiAffinityPriority(pod *api.Pod, podLister algorithm.PodLister, minionLister algorithm.MinionLister) (algorithm.HostPriorityList, error) {
+func (s *ServiceAntiAffinity) CalculateAntiAffinityPriority(pod *api.Pod, podLister algorithm.PodLister, minionLister algorithm.MinionLister) (api.HostPriorityList, error) {
 	var nsServicePods []*api.Pod
 
 	services, err := s.serviceLister.GetPodServices(pod)
@@ -153,7 +153,7 @@ func (s *ServiceAntiAffinity) CalculateAntiAffinityPriority(pod *api.Pod, podLis
 	}
 
 	numServicePods := len(nsServicePods)
-	result := []algorithm.HostPriority{}
+	result := []api.HostPriority{}
 	//score int - scale of 0-10
 	// 0 being the lowest priority and 10 being the highest
 	for minion := range labeledMinions {
@@ -162,11 +162,11 @@ func (s *ServiceAntiAffinity) CalculateAntiAffinityPriority(pod *api.Pod, podLis
 		if numServicePods > 0 {
 			fScore = 10 * (float32(numServicePods-podCounts[labeledMinions[minion]]) / float32(numServicePods))
 		}
-		result = append(result, algorithm.HostPriority{Host: minion, Score: int(fScore)})
+		result = append(result, api.HostPriority{Host: minion, Score: int(fScore)})
 	}
 	// add the open minions with a score of 0
 	for _, minion := range otherMinions {
-		result = append(result, algorithm.HostPriority{Host: minion, Score: 0})
+		result = append(result, api.HostPriority{Host: minion, Score: 0})
 	}
 
 	return result, nil
